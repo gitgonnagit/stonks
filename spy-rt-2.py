@@ -29,8 +29,19 @@ def get_historical_data(symbol, interval="1Min", limit=100):
     Fetch historical minute data from Alpaca for analysis.
     """
     barset = api.get_bars(symbol, interval, limit=limit).df
-    barset = barset[barset['symbol'] == symbol]  # Filter only for the specific symbol
+    barset = barset[barset['symbol'] == symbol] if 'symbol' in barset else barset  # Check for 'symbol' column
     return barset
+
+def get_latest_price(symbol):
+    """
+    Fetch the latest price for the given symbol using Alpaca's latest trade endpoint.
+    """
+    latest_trade = api.get_latest_trade(symbol)
+ #   print(f"Debug: Latest Trade Response: {latest_trade}")
+    return latest_trade.price
+
+
+
 
 # Function to calculate RSI
 def calculate_rsi(data, period=RSI_PERIOD):
@@ -50,53 +61,59 @@ def calculate_support_resistance(data, window=SUPPORT_RESISTANCE_WINDOW):
 
 # Real-time analysis loop
 def analyze_market():
-    """
-    Analyze the market in real-time and print buy/sell signals.
-    """
     print(f"Starting real-time analysis for {SYMBOL}...")
+
     while True:
-        # Get current time
         now = datetime.datetime.now()
         if now.time() >= END_TIME:
             print("Market closed. Exiting script.")
             break
         if now.time() < START_TIME:
             print("Waiting for market to open...")
-            time.sleep(60)  # Check again in 60 seconds
+            time.sleep(60)
             continue
 
         try:
-            # Fetch latest data
+            # Fetch the latest price
+            latest_price = get_latest_price(SYMBOL)
+            print(f"Current Price: {latest_price:.2f}")
+
+            # Fetch historical data and append the latest price
             data = get_historical_data(SYMBOL)
             if len(data) < SUPPORT_RESISTANCE_WINDOW:
                 print("Insufficient data for analysis. Waiting...")
                 time.sleep(CHECK_INTERVAL)
                 continue
 
-            # Calculate RSI and support/resistance
+            # Add the latest price as the most recent row in historical data
+            new_row = {'close': latest_price}  # Add other required columns if needed
+            data = pd.concat([data, pd.DataFrame([new_row])], ignore_index=True)
+
+            # Recalculate RSI and support/resistance
             data['RSI'] = calculate_rsi(data)
             support, resistance = calculate_support_resistance(data)
 
-            # Get the latest values
-            current_price = data['close'].iloc[-1]
             current_rsi = data['RSI'].iloc[-1]
-            print(f"Current Price: {current_price:.2f} | RSI: {current_rsi:.2f} | Support: {support:.2f} | Resistance: {resistance:.2f}")
+            print(f"RSI: {current_rsi:.2f} | Support: {support:.2f} | Resistance: {resistance:.2f}")
 
             # Signal logic
             if current_rsi < RSI_OVERSOLD:
-                print(f"Signal: BUY CALL at {current_price:.2f}")
+                print(f"Signal: BUY CALL at {latest_price:.2f}")
             elif current_rsi > RSI_OVERBOUGHT:
-                print(f"Signal: BUY PUT at {current_price:.2f}")
-            elif current_price < support:
-                print(f"Signal: SELL CALL (Support Broken) at {current_price:.2f}")
-            elif current_price > resistance:
-                print(f"Signal: SELL PUT (Resistance Broken) at {current_price:.2f}")
+                print(f"Signal: BUY PUT at {latest_price:.2f}")
+            elif latest_price < support:
+                print(f"Signal: SELL CALL (Support Broken) at {latest_price:.2f}")
+            elif latest_price > resistance:
+                print(f"Signal: SELL PUT (Resistance Broken) at {latest_price:.2f}")
 
         except Exception as e:
             print(f"Error fetching or analyzing data: {e}")
 
-        # Wait before the next check
         time.sleep(CHECK_INTERVAL)
+
+
+
+
 
 # Main Function
 def main():
